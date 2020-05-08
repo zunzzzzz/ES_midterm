@@ -18,6 +18,7 @@
 
 #define NUM_OF_SONGS 2
 #define NUM_OF_MODES 3
+#define NUM_OF_FREQUNCYS 42
 enum Mode {
     PLAY, MODE_SELECTION, SONG_SELECTION
 };
@@ -32,6 +33,7 @@ int song_iter = 0;
 int mode_iter = 0;
 int choose_iter = 0;
 Mode mode;
+bool exit_DNN = false;
 Thread note_thread(osPriorityNormal);
 Thread DNN_thread(osPriorityNormal, 120*1024);
 EventQueue note_queue(32 * EVENTS_EVENT_SIZE);
@@ -91,7 +93,7 @@ int PredictGesture(float* output) {
     return this_predict;
 }
 
-int song[NUM_OF_SONGS][42] = {
+int song[NUM_OF_SONGS][NUM_OF_FREQUNCYS] = {
     {261, 261, 392, 392, 440, 440, 392,
     349, 349, 330, 330, 294, 294, 261,
     392, 392, 349, 349, 330, 330, 294,
@@ -102,13 +104,14 @@ int song[NUM_OF_SONGS][42] = {
     300, 400, 500, 100, 200, 300, 400,
     500, 100, 200, 300, 400, 500, 100,
     200, 300, 400, 500, 100, 200, 300,
-    400, 500, 100, 200, 300, 400, 500}
+    400, 500, 100, 200, 300, 400, 500,
+    100, 200, 300, 400, 500, 100, 200}
 };
-string name[2] = {
+string name[NUM_OF_SONGS] = {
     "Little Star",
     "Test"
 };
-int noteLength[42] = {
+int noteLength[NUM_OF_FREQUNCYS] = {
     1, 1, 1, 1, 1, 1, 2,
     1, 1, 1, 1, 1, 1, 2,
     1, 1, 1, 1, 1, 1, 2,
@@ -126,34 +129,32 @@ void PlayNote(int freq)
 }
 void PlaySong(int index)
 {
-    for(int i = 0; i < 42; i++)
+    for(int i = 0; i < NUM_OF_FREQUNCYS; i++)
     {
         if(flag == 0) break;
         int length = noteLength[i];
         while(length--)
         {
-        // the loop below will play the note for the duration of 1s
-        for(int j = 0; j < kAudioSampleFrequency / kAudioTxBufferSize; ++j)
-        {
-            note_queue.call(PlayNote, song[index][i]);
-        }
-        if(length < 1) wait(1.0);
+            // the loop below will play the note for the duration of 1s
+            for(int j = 0; j < kAudioSampleFrequency / kAudioTxBufferSize; ++j)
+            {
+                note_queue.call(PlayNote, song[index][i]);
+            }
+            if(length < 1) wait(1.0);
         }
     }
 }
 void ButtonEvent()
 {   
-    // if(mode == PLAY) pc.printf("MODE\r\n");
-    // else if(mode == MODE_SELECTION) pc.printf("MODE SELECT\r\n");
-    // else pc.printf("SONG SELECT\r\n");
-
-
     if(mode == PLAY) {
+        // audio.spk.status(false);
         flag = 0;
         mode = MODE_SELECTION;
         mode_iter = 0;
     }
     else if(mode == MODE_SELECTION) {
+        // audio.spk.status(true);
+        exit_DNN = true;
         if(mode_iter == 0) {
             mode = PLAY;
             song_iter--;
@@ -165,17 +166,19 @@ void ButtonEvent()
             song_iter %= NUM_OF_SONGS;
         }
         else if(mode_iter == 2) {
-
+            mode = SONG_SELECTION;
+            choose_iter = 0;
         }
     }
     else if(mode == SONG_SELECTION) {
-
+        song_iter = choose_iter;
+        exit_DNN = true;
+        mode = PLAY;
     }
 }
 int DNN() {
     // error_reporter->Report("Set up successful...\n");
-    while (true) {
-        if(mode == PLAY) break;
+    while (!exit_DNN) {
         // Attempt to read new data from the accelerometer
         got_data = ReadAccelerometer(error_reporter, model_input->data.f,
                                     input_length, should_clear_buffer);
@@ -204,10 +207,30 @@ int DNN() {
         if (gesture_index < label_num) {
             error_reporter->Report(config.output_message[gesture_index]);
             if(mode == MODE_SELECTION) {
+                // ring gesture
+                if(gesture_index == 0) {
+                    mode_iter--;
+                    if(mode_iter < 0) mode_iter = NUM_OF_MODES - 1;
+                    break;
+                }
                 // slope gesture
-                if(gesture_index == 1) {
+                else if(gesture_index == 1) {
                     mode_iter++;
                     mode_iter %= NUM_OF_MODES;
+                    break;
+                }
+            }
+            if(mode == SONG_SELECTION) {
+                // ring gesture
+                if(gesture_index == 0) {
+                    choose_iter--;
+                    if(choose_iter < 0) choose_iter = NUM_OF_MODES - 1;
+                    break;
+                }
+                // slope gesture
+                else if(gesture_index == 1) {
+                    choose_iter++;
+                    choose_iter %= NUM_OF_MODES;
                     break;
                 }
             }
@@ -217,6 +240,7 @@ int DNN() {
 void Music() {
     while(true) {
         if(mode == PLAY) {
+            // audio.spk.play();
             uLCD.locate(0, 0);
             uLCD.cls();
             uLCD.printf("Song name : \n");
@@ -229,17 +253,27 @@ void Music() {
             flag = 1;
         }
         else if(mode == MODE_SELECTION) {
-            audio.spk.pause();
+            // audio.spk.pause();
             uLCD.locate(0, 0);
+            uLCD.cls();
             uLCD.printf("  Previous Song\n");
             uLCD.printf("  Next Song\n");
             uLCD.printf("  Select Song\n");
             uLCD.locate(0, mode_iter);
             uLCD.printf("->");
             DNN();
+            exit_DNN = false;
         }
         else if(mode == SONG_SELECTION) {
-
+            uLCD.locate(0, 0);
+            uLCD.cls();
+            for(int i = 0; i < NUM_OF_SONGS; i++) {
+                uLCD.printf("  %s\n", name[i].c_str());
+            }
+            uLCD.locate(0, choose_iter);
+            uLCD.printf("->");
+            DNN();
+            exit_DNN = false;
         }
     }
 }
