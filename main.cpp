@@ -38,7 +38,7 @@ Thread note_thread(osPriorityNormal);
 Thread DNN_thread(osPriorityNormal, 120*1024);
 EventQueue note_queue(32 * EVENTS_EVENT_SIZE);
 EventQueue DNN_queue(32 * EVENTS_EVENT_SIZE);
-
+DigitalOut green_led(LED2);
 
 // DNN variable
 constexpr int kTensorArenaSize = 50 * 1024;
@@ -93,20 +93,7 @@ int PredictGesture(float* output) {
     return this_predict;
 }
 
-int song[NUM_OF_SONGS][NUM_OF_FREQUNCYS] = {
-    {261, 261, 392, 392, 440, 440, 392,
-    349, 349, 330, 330, 294, 294, 261,
-    392, 392, 349, 349, 330, 330, 294,
-    392, 392, 349, 349, 330, 330, 294,
-    261, 261, 392, 392, 440, 440, 392,
-    349, 349, 330, 330, 294, 294, 261},
-    {100, 200, 300, 400, 500, 100, 200,
-    300, 400, 500, 100, 200, 300, 400,
-    500, 100, 200, 300, 400, 500, 100,
-    200, 300, 400, 500, 100, 200, 300,
-    400, 500, 100, 200, 300, 400, 500,
-    100, 200, 300, 400, 500, 100, 200}
-};
+int song[NUM_OF_SONGS][NUM_OF_FREQUNCYS];
 string name[NUM_OF_SONGS] = {
     "Little Star",
     "Test"
@@ -119,6 +106,33 @@ int noteLength[NUM_OF_FREQUNCYS] = {
     1, 1, 1, 1, 1, 1, 2,
     1, 1, 1, 1, 1, 1, 2
 };
+void LoadMusic()
+{
+    green_led = 0;
+    int i = 0;
+    int serial_count = 0;
+    song_iter = 0;
+    char serial_buffer[32];
+    while(i < NUM_OF_FREQUNCYS * NUM_OF_SONGS)
+    {
+        if(pc.readable())
+        {
+            serial_buffer[serial_count] = pc.getc();
+            serial_count++;
+            if(serial_count == 5)
+            {
+                serial_buffer[serial_count] = '\0';
+                song[song_iter][i%NUM_OF_FREQUNCYS] = (int) (atof(serial_buffer) * 1000.0);
+                serial_count = 0;
+                i++;
+                if(i % NUM_OF_FREQUNCYS == 0) {
+                    song_iter ++;
+                }
+            }
+        }
+    }
+    green_led = 1;
+}
 void PlayNote(int freq)
 {
     for(int i = 0; i < kAudioTxBufferSize; i++)
@@ -238,6 +252,7 @@ int DNN() {
     }
 }
 void Music() {
+    song_iter = 0;
     while(true) {
         if(mode == PLAY) {
             // audio.spk.play();
@@ -327,6 +342,7 @@ int main(void)
         error_reporter->Report("Set up failed\n");
         return -1;
     }
+    LoadMusic();
     Music();
 }
 
