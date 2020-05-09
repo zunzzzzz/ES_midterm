@@ -19,6 +19,28 @@
 #define NUM_OF_SONGS 2
 #define NUM_OF_MODES 3
 #define NUM_OF_FREQUNCYS 42
+
+#define UINT14_MAX 16383
+// FXOS8700CQ I2C address
+#define FXOS8700CQ_SLAVE_ADDR0 (0x1E<<1) // with pins SA0=0, SA1=0
+#define FXOS8700CQ_SLAVE_ADDR1 (0x1D<<1) // with pins SA0=1, SA1=0
+#define FXOS8700CQ_SLAVE_ADDR2 (0x1C<<1) // with pins SA0=0, SA1=1
+#define FXOS8700CQ_SLAVE_ADDR3 (0x1F<<1) // with pins SA0=1, SA1=1
+// FXOS8700CQ internal register addresses
+#define FXOS8700Q_STATUS 0x00
+#define FXOS8700Q_OUT_X_MSB 0x01
+#define FXOS8700Q_OUT_Y_MSB 0x03
+#define FXOS8700Q_OUT_Z_MSB 0x05
+#define FXOS8700Q_M_OUT_X_MSB 0x33
+#define FXOS8700Q_M_OUT_Y_MSB 0x35
+#define FXOS8700Q_M_OUT_Z_MSB 0x37
+#define FXOS8700Q_WHOAMI 0x0D
+#define FXOS8700Q_XYZ_DATA_CFG 0x0E
+#define FXOS8700Q_CTRL_REG1 0x2A
+#define FXOS8700Q_M_CTRL_REG1 0x5B
+#define FXOS8700Q_M_CTRL_REG2 0x5C
+#define FXOS8700Q_WHOAMI_VAL 0xC7
+
 enum Mode {
     PLAY, MODE_SELECTION, SONG_SELECTION
 };
@@ -27,19 +49,47 @@ Serial pc(USBTX, USBRX);
 int16_t waveform[kAudioTxBufferSize];
 uLCD_4DGL uLCD(D1, D0, D2);
 InterruptIn button(SW2);
-int id;
+I2C i2c_( PTD9,PTD8);
+int m_addr = FXOS8700CQ_SLAVE_ADDR1;
 int flag = 1;
 int song_iter = 0;
 int mode_iter = 0;
 int choose_iter = 0;
+int score = 0;
 Mode mode;
 bool exit_DNN = false;
 Thread note_thread(osPriorityNormal);
-Thread DNN_thread(osPriorityNormal, 120*1024);
+Thread music_thread(osPriorityNormal);
 EventQueue note_queue(32 * EVENTS_EVENT_SIZE);
-EventQueue DNN_queue(32 * EVENTS_EVENT_SIZE);
+EventQueue music_queue;
 DigitalOut green_led(LED2);
 
+int song[NUM_OF_SONGS][NUM_OF_FREQUNCYS];
+int beat[NUM_OF_FREQUNCYS] = {
+    0, 1, 0, 1, 0, 1,
+    0, 1, 0, 1, 0, 1,
+    0, 1, 0, 1, 0, 1,
+    0, 1, 0, 1, 0, 1,
+    0, 1, 0, 1, 0, 1,
+    0, 1, 0, 1, 0, 1,
+    0, 1, 0, 1, 0, 1
+};
+string name[NUM_OF_SONGS] = {
+    "Little Star",
+    "Test"
+};
+int note_length[NUM_OF_FREQUNCYS] = {
+    1, 1, 1, 1, 1, 1, 2,
+    1, 1, 1, 1, 1, 1, 2,
+    1, 1, 1, 1, 1, 1, 2,
+    1, 1, 1, 1, 1, 1, 2,
+    1, 1, 1, 1, 1, 1, 2,
+    1, 1, 1, 1, 1, 1, 2
+};
+// Accelerometer variable
+uint8_t who_am_i, data[2], res[6];
+int16_t acc16;
+float t[3];
 // DNN variable
 constexpr int kTensorArenaSize = 50 * 1024;
 uint8_t tensor_arena[kTensorArenaSize];
@@ -93,19 +143,37 @@ int PredictGesture(float* output) {
     return this_predict;
 }
 
-int song[NUM_OF_SONGS][NUM_OF_FREQUNCYS];
-string name[NUM_OF_SONGS] = {
-    "Little Star",
-    "Test"
-};
-int noteLength[NUM_OF_FREQUNCYS] = {
-    1, 1, 1, 1, 1, 1, 2,
-    1, 1, 1, 1, 1, 1, 2,
-    1, 1, 1, 1, 1, 1, 2,
-    1, 1, 1, 1, 1, 1, 2,
-    1, 1, 1, 1, 1, 1, 2,
-    1, 1, 1, 1, 1, 1, 2
-};
+
+void FXOS8700CQ_ReadRegs(int addr, uint8_t * data, int len) {
+    char t = addr;
+    i2c_.write(m_addr, &t, 1, true);
+    i2c_.read(m_addr, (char *)data, len);
+}
+
+void FXOS8700CQ_WriteRegs(uint8_t * data, int len) {
+    i2c_.write(m_addr, (char *)data, len);
+}
+float ReadAcc() {
+    FXOS8700CQ_ReadRegs(FXOS8700Q_OUT_X_MSB, res, 6);
+
+    acc16 = (res[0] << 6) | (res[1] >> 2);
+    if (acc16 > UINT14_MAX/2)
+        acc16 -= UINT14_MAX;
+    t[0] = ((float)acc16) / 4096.0f;
+
+    acc16 = (res[2] << 6) | (res[3] >> 2);
+    if (acc16 > UINT14_MAX/2)
+        acc16 -= UINT14_MAX;
+    t[1] = ((float)acc16) / 4096.0f;
+
+    acc16 = (res[4] << 6) | (res[5] >> 2);
+    if (acc16 > UINT14_MAX/2)
+        acc16 -= UINT14_MAX;
+    t[2] = ((float)acc16) / 4096.0f;
+    pc.printf("TOTAL ACC: %1.4f\r\n", sqrt(t[0] * t[0] + t[1] * t[1] + t[2] * t[2]));
+    return sqrt(t[0] * t[0] + t[1] * t[1] + t[2] * t[2]);
+    // printf("FXOS8700Q ACC: X=%1.4f Y=%1.4f Z=%1.4f\r\n", t[0], t[1], t[2]);
+}
 void LoadMusic()
 {
     green_led = 0;
@@ -126,7 +194,7 @@ void LoadMusic()
                 serial_count = 0;
                 i++;
                 if(i % NUM_OF_FREQUNCYS == 0) {
-                    song_iter ++;
+                    song_iter++;
                 }
             }
         }
@@ -146,15 +214,26 @@ void PlaySong(int index)
     for(int i = 0; i < NUM_OF_FREQUNCYS; i++)
     {
         if(flag == 0) break;
-        int length = noteLength[i];
+        int length = note_length[i];
         while(length--)
         {
             // the loop below will play the note for the duration of 1s
-            for(int j = 0; j < kAudioSampleFrequency / kAudioTxBufferSize; ++j)
+            for(int j = 0; j < 16; ++j)
             {
                 note_queue.call(PlayNote, song[index][i]);
             }
-            if(length < 1) wait(1.0);
+            float acc = ReadAcc();
+            int beat_recorded;
+            uLCD.locate(0, 3);
+            uLCD.printf("%d\n", beat[i]);
+            uLCD.locate(0, 5);
+            uLCD.printf("%d\n", score);
+            if(length < 1) wait(1.);
+
+            if(acc < 2.0 && acc > 1.3) beat_recorded = 1;
+            else if(acc >= 1.1) beat_recorded = 0;
+            else beat_recorded = -1;
+            if(beat_recorded == beat[i]) score++;
         }
     }
 }
@@ -256,10 +335,15 @@ void Music() {
     while(true) {
         if(mode == PLAY) {
             // audio.spk.play();
+            score = 0;
             uLCD.locate(0, 0);
             uLCD.cls();
             uLCD.printf("Song name : \n");
             uLCD.printf("%s\n", name[song_iter].c_str()); 
+            uLCD.locate(0, 2);
+            uLCD.printf("Beat : \n");
+            uLCD.locate(0, 4);
+            uLCD.printf("Score : \n");
             PlaySong(song_iter);
             if(flag == 1) {
                 song_iter++;
@@ -295,7 +379,8 @@ void Music() {
 int main(void)
 {
     note_thread.start(callback(&note_queue, &EventQueue::dispatch_forever));
-    button.rise(ButtonEvent);
+    music_thread.start(callback(&music_queue, &EventQueue::dispatch_forever));
+    button.fall(ButtonEvent);
     mode = PLAY;
     song_iter = 0;
     // set up DNN
@@ -342,8 +427,19 @@ int main(void)
         error_reporter->Report("Set up failed\n");
         return -1;
     }
+    // accelerometer
+    // Enable the FXOS8700Q
+    FXOS8700CQ_ReadRegs( FXOS8700Q_CTRL_REG1, &data[1], 1);
+    data[1] |= 0x01;
+    data[0] = FXOS8700Q_CTRL_REG1;
+    FXOS8700CQ_WriteRegs(data, 2);
+
+    // Get the slave address
+    FXOS8700CQ_ReadRegs(FXOS8700Q_WHOAMI, &who_am_i, 1);
+
+    pc.printf("Here is %x\r\n", who_am_i);
     LoadMusic();
-    Music();
+    music_queue.call(Music);    
 }
 
 
