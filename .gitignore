@@ -1,7 +1,7 @@
 BUILD/
-tensorflowlite_mbed*
-audio.json
-mbed_settings.py
-.mbed
-DA7212*
-4DGL*
+# tensorflowlite_mbed*
+# audio.json
+# mbed_settings.py
+# .mbed
+# DA7212*
+# 4DGL*
