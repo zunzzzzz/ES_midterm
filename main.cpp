@@ -170,9 +170,7 @@ float ReadAcc() {
     if (acc16 > UINT14_MAX/2)
         acc16 -= UINT14_MAX;
     t[2] = ((float)acc16) / 4096.0f;
-    pc.printf("TOTAL ACC: %1.4f\r\n", sqrt(t[0] * t[0] + t[1] * t[1] + t[2] * t[2]));
     return sqrt(t[0] * t[0] + t[1] * t[1] + t[2] * t[2]);
-    // printf("FXOS8700Q ACC: X=%1.4f Y=%1.4f Z=%1.4f\r\n", t[0], t[1], t[2]);
 }
 void LoadMusic()
 {
@@ -438,7 +436,6 @@ int main(void)
     // Get the slave address
     FXOS8700CQ_ReadRegs(FXOS8700Q_WHOAMI, &who_am_i, 1);
 
-    pc.printf("Here is %x\r\n", who_am_i);
     LoadMusic();
     music_queue.call(Music);    
 }
