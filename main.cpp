@@ -16,7 +16,8 @@
 #include "tensorflow/lite/schema/schema_generated.h"
 #include "tensorflow/lite/version.h"
 
-#define NUM_OF_SONGS 2
+#define NUM_OF_SONGS 5
+#define NUM_OF_SONGS_IN_BOARD 4
 #define NUM_OF_MODES 3
 #define NUM_OF_FREQUNCYS 42
 
@@ -44,6 +45,7 @@
 enum Mode {
     PLAY, MODE_SELECTION, SONG_SELECTION
 };
+
 DA7212 audio;
 Serial pc(USBTX, USBRX);
 int16_t waveform[kAudioTxBufferSize];
@@ -55,6 +57,7 @@ int flag = 1;
 int song_iter = 0;
 int mode_iter = 0;
 int choose_iter = 0;
+int song_index[NUM_OF_SONGS];
 int score = 0;
 Mode mode;
 bool exit_DNN = false;
@@ -64,7 +67,36 @@ EventQueue note_queue(32 * EVENTS_EVENT_SIZE);
 EventQueue music_queue;
 DigitalOut green_led(LED2);
 
-int song[NUM_OF_SONGS][NUM_OF_FREQUNCYS];
+int song[NUM_OF_SONGS_IN_BOARD][NUM_OF_FREQUNCYS] = 
+{
+    {261, 261, 392, 392, 440, 440, 392,
+    349, 349, 330, 330, 294, 294, 261,
+    392, 392, 349, 349, 330, 330, 294,
+    392, 392, 349, 349, 330, 330, 294,
+    261, 261, 392, 392, 440, 440, 392,
+    349, 349, 330, 330, 294, 294, 261},
+
+    {100, 200, 300, 400, 500, 100, 200,
+    300, 400, 500, 100, 200, 300, 400,
+    500, 100, 200, 300, 400, 500, 100,
+    200, 300, 400, 500, 100, 200, 300,
+    400, 500, 100, 200, 300, 400, 500,
+    100, 200, 300, 400, 500, 100, 200},
+
+    {500, 400, 300, 200, 100, 500, 400,
+    500, 400, 300, 200, 100, 500, 400,
+    500, 400, 300, 200, 100, 500, 400,
+    500, 400, 300, 200, 100, 500, 400,
+    500, 400, 300, 200, 100, 500, 400,
+    500, 400, 300, 200, 100, 500, 400},
+
+    {200, 200, 200, 200, 200, 200, 200,
+    200, 200, 200, 200, 200, 200, 200,
+    200, 200, 200, 200, 200, 200, 200,
+    200, 200, 200, 200, 200, 200, 200,
+    200, 200, 200, 200, 200, 200, 200,
+    200, 200, 200, 200, 200, 200, 200}
+};
 int beat[NUM_OF_FREQUNCYS] = {
     0, 1, 0, 1, 0, 1,
     0, 1, 0, 1, 0, 1,
@@ -76,7 +108,10 @@ int beat[NUM_OF_FREQUNCYS] = {
 };
 string name[NUM_OF_SONGS] = {
     "Little Star",
-    "Test"
+    "Test1",
+    "Test2",
+    "Test3",
+    "Test4"
 };
 int note_length[NUM_OF_FREQUNCYS] = {
     1, 1, 1, 1, 1, 1, 2,
@@ -172,14 +207,16 @@ float ReadAcc() {
     t[2] = ((float)acc16) / 4096.0f;
     return sqrt(t[0] * t[0] + t[1] * t[1] + t[2] * t[2]);
 }
-void LoadMusic()
+void LoadMusic(int iter, int remove)
 {
+    audio.spk.pause();
+    pc.printf("\r\n"); // erase useless print
+    pc.printf("%d\r\n", iter);
     green_led = 0;
     int i = 0;
     int serial_count = 0;
-    song_iter = 0;
     char serial_buffer[32];
-    while(i < NUM_OF_FREQUNCYS * NUM_OF_SONGS)
+    while(i < NUM_OF_FREQUNCYS)
     {
         if(pc.readable())
         {
@@ -188,16 +225,14 @@ void LoadMusic()
             if(serial_count == 5)
             {
                 serial_buffer[serial_count] = '\0';
-                song[song_iter][i%NUM_OF_FREQUNCYS] = (int) (atof(serial_buffer) * 1000.0);
+                song[remove][i] = (int) (atof(serial_buffer) * 1000.0);
                 serial_count = 0;
                 i++;
-                if(i % NUM_OF_FREQUNCYS == 0) {
-                    song_iter++;
-                }
             }
         }
     }
     green_led = 1;
+    audio.spk.play();
 }
 void PlayNote(int freq)
 {
@@ -284,7 +319,7 @@ int DNN() {
         // Run inference, and report any error
         TfLiteStatus invoke_status = interpreter->Invoke();
         if (invoke_status != kTfLiteOk) {
-            error_reporter->Report("Invoke failed on index: %d\n", begin_index);
+            // error_reporter->Report("Invoke failed on index: %d\n", begin_index);
             continue;
         }
 
@@ -296,7 +331,7 @@ int DNN() {
 
         // Produce an output
         if (gesture_index < label_num) {
-            error_reporter->Report(config.output_message[gesture_index]);
+            // error_reporter->Report(config.output_message[gesture_index]);
             if(mode == MODE_SELECTION) {
                 // ring gesture
                 if(gesture_index == 0) {
@@ -342,7 +377,22 @@ void Music() {
             uLCD.printf("Beat : \n");
             uLCD.locate(0, 4);
             uLCD.printf("Score : \n");
-            PlaySong(song_iter);
+            if(song_index[song_iter] != -1) {
+                PlaySong(song_index[song_iter]);
+            }
+            else {
+                int remove_index = 0; // index that song will be removed
+                for(int iter = 0; iter < NUM_OF_SONGS; iter++) {
+                    if(song_index[iter] != -1) {
+                        remove_index = iter;
+                        break;
+                    }
+                }
+                song_index[remove_index] = -1;
+                song_index[song_iter] = remove_index;
+                LoadMusic(song_iter, remove_index);
+                PlaySong(song_index[song_iter]);
+            }
             if(flag == 1) {
                 song_iter++;
                 song_iter %= NUM_OF_SONGS;
@@ -375,6 +425,13 @@ void Music() {
         }
     }
 }
+void Init() {
+    green_led = 1;
+    for (int i = 0; i < NUM_OF_SONGS; i++) {
+        if(i < NUM_OF_SONGS_IN_BOARD) song_index[i] = i;
+        else song_index[i] = -1;
+    }
+}
 int main(void)
 {
     note_thread.start(callback(&note_queue, &EventQueue::dispatch_forever));
@@ -385,10 +442,10 @@ int main(void)
     // set up DNN
     const tflite::Model* model = tflite::GetModel(g_magic_wand_model_data);
     if (model->version() != TFLITE_SCHEMA_VERSION) {
-        error_reporter->Report(
-            "Model provided is schema version %d not equal "
-            "to supported version %d.",
-            model->version(), TFLITE_SCHEMA_VERSION);
+        // error_reporter->Report(
+        //     "Model provided is schema version %d not equal "
+        //     "to supported version %d.",
+        //     model->version(), TFLITE_SCHEMA_VERSION);
         return -1;
     }
     static tflite::MicroOpResolver<6> micro_op_resolver;
@@ -415,7 +472,7 @@ int main(void)
         (model_input->dims->data[1] != config.seq_length) ||
         (model_input->dims->data[2] != kChannelNumber) ||
         (model_input->type != kTfLiteFloat32)) {
-        error_reporter->Report("Bad input tensor parameters in model");
+        // error_reporter->Report("Bad input tensor parameters in model");
         return -1;
     }
 
@@ -423,7 +480,7 @@ int main(void)
 
     TfLiteStatus setup_status = SetupAccelerometer(error_reporter);
     if (setup_status != kTfLiteOk) {
-        error_reporter->Report("Set up failed\n");
+        // error_reporter->Report("Set up failed\n");
         return -1;
     }
     // accelerometer
@@ -435,8 +492,8 @@ int main(void)
 
     // Get the slave address
     FXOS8700CQ_ReadRegs(FXOS8700Q_WHOAMI, &who_am_i, 1);
-
-    LoadMusic();
+    Init();
+    // LoadMusic();
     music_queue.call(Music);    
 }
 
