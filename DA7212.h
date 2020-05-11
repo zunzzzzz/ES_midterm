@@ -69,7 +69,10 @@ class DA7212
       bool status(void) { return is_speaker_enable; }
       int play(int16_t *input, const int16_t input_size);
       void play(void) {status(true);};
-      void pause(void) { status(false); }
+      void pause(void) { 
+        // status(false);
+        memset(tx_buffer, 0, kAudioTxBufferSize); 
+      }
     } spk;
 
     struct microphone

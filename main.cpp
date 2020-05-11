@@ -334,7 +334,7 @@ void Music() {
     song_iter = 0;
     while(true) {
         if(mode == PLAY) {
-            // audio.spk.play();
+            audio.spk.play();
             score = 0;
             uLCD.locate(0, 0);
             uLCD.cls();
@@ -352,7 +352,7 @@ void Music() {
             flag = 1;
         }
         else if(mode == MODE_SELECTION) {
-            // audio.spk.pause();
+            audio.spk.pause();
             uLCD.locate(0, 0);
             uLCD.cls();
             uLCD.printf("  Previous Song\n");
@@ -364,6 +364,7 @@ void Music() {
             exit_DNN = false;
         }
         else if(mode == SONG_SELECTION) {
+            audio.spk.pause();
             uLCD.locate(0, 0);
             uLCD.cls();
             for(int i = 0; i < NUM_OF_SONGS; i++) {
