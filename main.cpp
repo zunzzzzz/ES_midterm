@@ -350,13 +350,13 @@ int DNN() {
                 // ring gesture
                 if(gesture_index == 0) {
                     choose_iter--;
-                    if(choose_iter < 0) choose_iter = NUM_OF_MODES - 1;
+                    if(choose_iter < 0) choose_iter = NUM_OF_SONGS - 1;
                     break;
                 }
                 // slope gesture
                 else if(gesture_index == 1) {
                     choose_iter++;
-                    choose_iter %= NUM_OF_MODES;
+                    choose_iter %= NUM_OF_SONGS;
                     break;
                 }
             }
